@@ -28,17 +28,24 @@ duplicate_message = ""
 last_sent_command = ""
 status_start_time = 0
 
+# mới thêm vào
+behind_done = ""
+message_reply = ""
+display_start_time = None
 # --------------------------NETWORK CONFIGURATION------------------------------#
 import socket
 import json
 
 VM_IP = "192.168.1.17"
 port_sending = 5000
+
+
 # number = input("Enter led number: ")
 
 
 # -----------------------------------------------------------------------------#
 def message_sending_to_VM(message, host, port):
+    error = None
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         # Connect to the VM
@@ -49,12 +56,21 @@ def message_sending_to_VM(message, host, port):
         sock.sendall(json.dumps(message).encode())
         print("Message sent!")
 
-        sock.close()
+        sock.settimeout(3)
+
+    except socket.timeout:
+        print("Timeout message sending to VM")
+        error = "time_out"
     except Exception as e:
         print("Error: {}".format(e))
+        error = "error"
+    finally:
+        sock.close()
+        return error
 
 
 def message_listening_to_VM(host, port):
+    error = None
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.bind((host, port))
@@ -65,23 +81,34 @@ def message_listening_to_VM(host, port):
         conn, addr = sock.accept()
         print("Connected by {}".format(addr))
 
+        sock.settimeout(3)
+
         # Receive the message
         data = conn.recv(1024).decode()
         print("Received: {}".format(data))
 
         conn.close()
+    except socket.timeout:
+        print("Timeout message listening to VM")
+        error = "time_out"
     except Exception as e:
         print("Error: {}".format(e))
+        error = "error"
     finally:
         sock.close()
-        return data
+        return data, error
 
 
 def cooja_controller(node_ip, command):
     mess_json = {"node": f"{node_ip}", "command": f"{command}"}
-    message_sending_to_VM(mess_json, VM_IP, port_sending)
-    message_listening_to_VM("0.0.0.0", port_sending)
-
+    error_send = message_sending_to_VM(mess_json, VM_IP, port_sending)
+    if error_send == None:
+        message_reply, error_listen = message_listening_to_VM("0.0.0.0", port_sending)
+        if error_listen == "error":
+            message_reply = "Listening message failed. Check connection."
+    else:
+        message_reply = "Sending message failed. Check connection."
+    return message_reply
 
 if __name__ == "__main__":
     while True:
@@ -97,7 +124,9 @@ if __name__ == "__main__":
         if not result.multi_hand_landmarks or len(result.multi_hand_landmarks) < 2:
             # Nếu không đủ 2 tay, hiển thị trạng thái "Wait"
             status_message = "Wait"
-            cv2.putText(frame, f"Message: {status_message}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv2.putText(frame, f"please put your hand up", (250, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+            cv2.putText(frame, last_sent_command, (frame.shape[1] // 4, frame.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.imshow("Hand Tracking", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -185,19 +214,22 @@ if __name__ == "__main__":
                     # Hiển thị trạng thái gửi lệnh
                     status_message = "Sending"
                     print(status_message)  # In ra trạng thái "Sending"
-                    cv2.putText(frame, "Sending", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                    cv2.putText(frame, "Sending....", (500, 600), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 255), 3)
                     cv2.imshow("Hand Tracking", frame)
                     cv2.waitKey(1)  # Cập nhật khung hình ngay lập tức trong khi đang gửi lệnh
                     cv2.putText(frame, current_condition, (frame.shape[1] // 4, frame.shape[0] - 20),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
                     print(current_condition)  # In ra console
-                    cooja_controller(node, command)
+                    message_reply = cooja_controller(node, command)
+
                     # Giả lập việc gửi lệnh thành công hoặc thất bại
                     success = True  # Hoặc logic thực tế
                     if success:
                         status_message = "Done"
                         last_sent_command = current_condition
+                        behind_done = message_reply
+
                     else:
                         status_message = "Fail"
                     print(status_message)  # In ra trạng thái "Done" hoặc "Fail"
@@ -208,6 +240,19 @@ if __name__ == "__main__":
 
         # Hiển thị trạng thái cuối cùng lên màn hình
         cv2.putText(frame, f"Message: {status_message}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+        cv2.putText(frame, last_sent_command, (frame.shape[1] // 4, frame.shape[0] - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        # hien thi sau done
+        if behind_done == message_reply and display_start_time is None:
+            display_start_time = time.time()
+        if display_start_time is not None:
+            if time.time() - display_start_time <= 5:
+                cv2.putText(frame, behind_done, (10, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+            else:
+                display_start_time = None
+                behind_done = ""
 
         # Nếu không có gì giữ nguyên 3 giây, trạng thái là "Wait"
         if time.time() - status_start_time > 3:
