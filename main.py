@@ -36,13 +36,11 @@ display_start_time = None
 import socket
 import json
 
-VM_IP = "192.168.1.17"
-port_sending = 5000
+# VM_IP = "192.168.1.17"
+# port_sending = 5000
 
-
-# number = input("Enter led number: ")
-
-
+VM_IP = input("Enter Contiki Host IP: ")
+port_sending = input ("Choose forwarding port: ")
 # -----------------------------------------------------------------------------#
 def message_sending_to_VM(message, host, port):
     error = None
